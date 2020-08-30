@@ -91,11 +91,20 @@ export class CrudResource implements DataProvider {
     constructor(protected portofinoApiUrl, protected httpClient: HttpClient, protected classAccessor) {}
 
     create(resource: string, params: CreateParams): Promise<CreateResult> {
-        throw "not implemented";
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}`, {
+            method: 'POST', body: params.data
+        }).then(({ headers, json }) => {
+            return {
+                data: this.toPlainJson(json),
+                rawData: json
+            };
+        });
     }
 
     delete(resource: string, params: DeleteParams): Promise<DeleteResult> {
-        throw "not implemented";
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
+            method: 'DELETE'
+        }).then(() => { return {}; });
     }
 
     deleteMany(resource: string, params: DeleteManyParams): Promise<DeleteManyResult> {
@@ -105,7 +114,8 @@ export class CrudResource implements DataProvider {
     getList(resource: string, params: GetListParams): Promise<GetListResult> {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}`).then(({ headers, json }) => {
             return {
-                data: json.records,
+                data: json.records.map(x => this.toPlainJson(x)),
+                rawData: json.records,
                 total: json.totalRecords
             };
         });
@@ -120,14 +130,38 @@ export class CrudResource implements DataProvider {
     }
 
     getOne(resource: string, params: GetOneParams): Promise<GetOneResult> {
-        throw "not implemented";
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`).then(({ headers, json }) => {
+            return {
+                data: this.toPlainJson(json),
+                rawData: json
+            };
+        });
     }
 
     update(resource: string, params: UpdateParams): Promise<UpdateResult> {
-        throw "not implemented";
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
+            method: 'PUT', body: params.data
+        }).then(({ headers, json }) => {
+            return {
+                data: this.toPlainJson(json),
+                rawData: json
+            };
+        });
     }
 
     updateMany(resource: string, params: UpdateManyParams): Promise<UpdateManyResult> {
         throw "not implemented";
+    }
+
+    toPlainJson(obj: any) {
+        let result = {...obj};
+        delete result.__rowKey;
+        for (const p in result) {
+            if(result.hasOwnProperty(p) && result[p].hasOwnProperty("value")) {
+                result[p] = result[p].value;
+            }
+        }
+        console.log("result", result);
+        return result;
     }
 }
