@@ -173,7 +173,19 @@ export class CrudResource implements DataProvider {
     }
 
     deleteMany(resource: string, params: DeleteManyParams): Promise<DeleteManyResult> {
-        throw "not implemented";
+        const queryString = stringify({ id: params.ids });
+        //TODO: at the moment, Portofino only returns the number of deleted objects, not the IDs. This will change in version 5.2 and will need a header.
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
+            method: 'DELETE'
+        }).then(({ json }) => {
+            if(typeof json === "number") {
+                //Legacy version (< 5.2) does not return which objects it deleted, only how many
+                return { data: params.ids };
+            } else {
+                //Portofino 5.2+
+                return { data: json };
+            }
+        });
     }
 
     getList(resource: string, params: GetListParams): Promise<GetListResult> {
@@ -203,7 +215,25 @@ export class CrudResource implements DataProvider {
     }
 
     getMany(resource: string, params: GetManyParams): Promise<GetManyResult> {
-        throw "not implemented";
+        const self = this;
+        //We can only load them one by one...
+        function load(i): Promise<GetManyResult> {
+            let one = self.getOne(resource, { id: params.ids[i] });
+            if(i == params.ids.length - 1) {
+                return one.then(result => {
+                    return { data: [result.data] };
+                });
+            } else {
+                return one.then(result => load(i + i).then(results => {
+                    return { data: [result.data, ...results.data] };
+                }));
+            }
+        }
+        if(params.ids.length > 0) {
+            return load(0);
+        } else {
+            return Promise.resolve({ data: [] });
+        }
     }
 
     getManyReference(resource: string, params: GetManyReferenceParams): Promise<GetManyReferenceResult> {
@@ -231,7 +261,15 @@ export class CrudResource implements DataProvider {
     }
 
     updateMany(resource: string, params: UpdateManyParams): Promise<UpdateManyResult> {
-        throw "not implemented";
+        const queryString = stringify({ id: params.ids });
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
+            method: 'PUT', body: JSON.stringify(params.data)
+        }).then(({ headers, json }) => {
+            return {
+                //Portofino < 5.2 returns the list of ids of the objects that have NOT been updated. Yes, that's legacy cruft.
+                data: params.ids.filter(id => json.indexOf(id) == -1)
+            };
+        });
     }
 
     toPlainJson(obj: any) {

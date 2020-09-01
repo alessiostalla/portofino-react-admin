@@ -23,3 +23,5 @@ const App = () => (
    </Admin>
 );
 ```
+
+Please refer to the React Admin documentation if you're new to it.
