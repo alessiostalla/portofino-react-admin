@@ -31,24 +31,28 @@ import {Options} from "ra-core/lib/dataProvider/fetch";
  *
  * import * as React from "react";
  * import { Admin, Resource } from 'react-admin';
- * import portofinoRestProvider from 'portofino-react-admin';
+ * import portofino from 'portofino-react-admin';
  *
- * import { PostList } from './posts';
+ * const { dataProvider, authProvider } = portofino('http://localhost:8080/demo-tt/api');
  *
  * const App = () => (
- *     <Admin dataProvider={simpleRestProvider('http://path.to.my.api/')}>
- *         <Resource name="posts" list={PostList} />
+ *     <Admin dataProvider={dataProvider} authProvider={authProvider}>
+ *         <!-- Resources here -->
  *     </Admin>
  * );
  *
  * export default App;
  */
-export default (portofinoApiUrl, underlyingHttpClient = fetchUtils.fetchJson): {
+export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetchJson): {
     dataProvider: DataProvider,
-    authProvider: AuthProvider
+    authProvider: AuthProvider,
+    initialization: Promise<void>
 } => {
+    if(portofinoApiUrl.endsWith("/")) {
+        portofinoApiUrl = portofinoApiUrl.substring(0, portofinoApiUrl.length - 1);
+    }
     const resources: { [resource: string]: DataProvider } = {};
-    let loginUrl = `${portofinoApiUrl}/login`; //TODO compute from application
+    let loginUrl = `${portofinoApiUrl}/login`;
     const httpClient = (url, options: Options = {}) => {
         let jwt = localStorage.getItem('token');
         return underlyingHttpClient(url, {
@@ -59,6 +63,11 @@ export default (portofinoApiUrl, underlyingHttpClient = fetchUtils.fetchJson): {
             ...options
         })
     };
+    let initialization = underlyingHttpClient(`${portofinoApiUrl}/:description`).then(({ json }) => {
+        if(json && json.loginPath) {
+            loginUrl = `${portofinoApiUrl}${json.loginPath}`;
+        }
+    });
 
     const invokeDataProvider = function<T>(resource, method, params): Promise<T> {
         if(!resources[resource]) {
@@ -143,7 +152,7 @@ export default (portofinoApiUrl, underlyingHttpClient = fetchUtils.fetchJson): {
         getPermissions: () => Promise.resolve()
     };
 
-    return { dataProvider, authProvider };
+    return { dataProvider, authProvider, initialization };
 }
 
 type HttpClient = (url, options?: Options) => Promise<{ status: number; headers: Headers; body: string; json: any; }>;
@@ -274,10 +283,15 @@ export class CrudResource implements DataProvider {
 
     toPlainJson(obj: any) {
         let result = {...obj};
+        if(!result.id) {
+            result.id = result.__rowKey;
+        }
         delete result.__rowKey;
         for (const p in result) {
             if(result.hasOwnProperty(p) && result[p].hasOwnProperty("value")) {
                 result[p] = result[p].value;
+                // TODO convert date properties from numbers to Date objects (using class accessor)
+                // so that the list guesser can recognize them.
             }
         }
         return result;
