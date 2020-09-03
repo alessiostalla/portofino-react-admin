@@ -73,8 +73,8 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
         if(!resources[resource]) {
             return new Promise<T>(function (resolve, reject) {
                 httpClient(`${portofinoApiUrl}/${resource}/:classAccessor`)
-                    .then(c => {
-                        let crud = new CrudResource(portofinoApiUrl, httpClient, c);
+                    .then(({ json }) => {
+                        let crud = new CrudResource(portofinoApiUrl, httpClient, json);
                         resources[resource] = crud;
                         crud[method](resource, params).then(resolve).catch(reject);
                     })
@@ -157,8 +157,17 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
 
 type HttpClient = (url, options?: Options) => Promise<{ status: number; headers: Headers; body: string; json: any; }>;
 
+export interface ClassAccessor {
+    properties: Property[];
+}
+
+export interface Property {
+    name: string;
+    type: string;
+}
+
 export class CrudResource implements DataProvider {
-    constructor(protected portofinoApiUrl, protected httpClient: HttpClient, protected classAccessor) {}
+    constructor(protected portofinoApiUrl, protected httpClient: HttpClient, protected classAccessor: ClassAccessor) {}
 
     create(resource: string, params: CreateParams): Promise<CreateResult> {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}`, {
@@ -172,20 +181,38 @@ export class CrudResource implements DataProvider {
     }
 
     delete(resource: string, params: DeleteParams): Promise<DeleteResult> {
+        let headers = new Headers();
+        headers.set("X-Portofino-API-Version", "5.2");
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
-            method: 'DELETE'
-        }).then(() => {
-            return {
-                data: { id: params.id }
-            };
+            method: 'DELETE', headers
+        }).then(({ json }) => {
+            if(typeof json === "number") {
+                //Legacy version (< 5.2) does not return which objects it deleted, only how many
+                if(json == 1) {
+                    return { data: { id: params.id } };
+                } else {
+                    return { data: { id: null } };
+                }
+            } else {
+                //Portofino 5.2+
+                return { data: { id: params.id } };
+            }
+        }).catch(e => {
+            if(e.status == 409) {
+                //TODO show an error message
+                return { data: { id: null } };
+            } else {
+                return Promise.reject(e);
+            }
         });
     }
 
     deleteMany(resource: string, params: DeleteManyParams): Promise<DeleteManyResult> {
         const queryString = stringify({ id: params.ids });
-        //TODO: at the moment, Portofino only returns the number of deleted objects, not the IDs. This will change in version 5.2 and will need a header.
+        let headers = new Headers();
+        headers.set("X-Portofino-API-Version", "5.2");
         return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
-            method: 'DELETE'
+            method: 'DELETE', headers: headers
         }).then(({ json }) => {
             if(typeof json === "number") {
                 //Legacy version (< 5.2) does not return which objects it deleted, only how many
@@ -193,6 +220,13 @@ export class CrudResource implements DataProvider {
             } else {
                 //Portofino 5.2+
                 return { data: json };
+            }
+        }).catch(e => {
+            if(e.status == 409) {
+                //TODO show an error message
+                return { data: [] };
+            } else {
+                return Promise.reject(e);
             }
         });
     }
@@ -290,8 +324,12 @@ export class CrudResource implements DataProvider {
         for (const p in result) {
             if(result.hasOwnProperty(p) && result[p].hasOwnProperty("value")) {
                 result[p] = result[p].value;
-                // TODO convert date properties from numbers to Date objects (using class accessor)
-                // so that the list guesser can recognize them.
+                let property = this.classAccessor.properties.find(prop => prop.name == p);
+                if(property) {
+                    if(property.type == 'java.util.Date' || property.type == 'java.sql.Date' || property.type == 'java.sql.Timestamp') {
+                        result[p] = new Date(result[p]);
+                    }
+                }
             }
         }
         return result;
