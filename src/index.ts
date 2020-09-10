@@ -166,6 +166,8 @@ export interface Property {
     type: string;
 }
 
+const PORTOFINO_API_VERSION_HEADER = "X-Portofino-API-Version";
+
 export class CrudResource implements DataProvider {
     constructor(protected portofinoApiUrl, protected httpClient: HttpClient, protected classAccessor: ClassAccessor) {}
 
@@ -182,7 +184,7 @@ export class CrudResource implements DataProvider {
 
     delete(resource: string, params: DeleteParams): Promise<DeleteResult> {
         let headers = new Headers();
-        headers.set("X-Portofino-API-Version", "5.2");
+        headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
             method: 'DELETE', headers
         }).then(({ json }) => {
@@ -195,7 +197,7 @@ export class CrudResource implements DataProvider {
                 }
             } else {
                 //Portofino 5.2+
-                return { data: { id: params.id } };
+                return { data: { id: json[0] } };
             }
         }).catch(e => {
             if(e.status == 409) {
@@ -210,7 +212,7 @@ export class CrudResource implements DataProvider {
     deleteMany(resource: string, params: DeleteManyParams): Promise<DeleteManyResult> {
         const queryString = stringify({ id: params.ids });
         let headers = new Headers();
-        headers.set("X-Portofino-API-Version", "5.2");
+        headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
         return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
             method: 'DELETE', headers: headers
         }).then(({ json }) => {
@@ -305,13 +307,19 @@ export class CrudResource implements DataProvider {
 
     updateMany(resource: string, params: UpdateManyParams): Promise<UpdateManyResult> {
         const queryString = stringify({ id: params.ids });
+        let headers = new Headers();
+        headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
         return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
-            method: 'PUT', body: JSON.stringify(params.data)
+            method: 'PUT', body: JSON.stringify(params.data), headers: headers
         }).then(({ headers, json }) => {
-            return {
-                //Portofino < 5.2 returns the list of ids of the objects that have NOT been updated. Yes, that's legacy cruft.
-                data: params.ids.filter(id => json.indexOf(id) == -1)
-            };
+            if(headers.get(PORTOFINO_API_VERSION_HEADER)) { //Portofino 5.2+ sets this header for all API responses
+                return { data: json }
+            } else {
+                return {
+                    //Portofino < 5.2 returns the ids of the objects that have NOT been updated. Yes, that's legacy cruft.
+                    data: params.ids.filter(id => json.indexOf(id) == -1)
+                };
+            }
         });
     }
 
