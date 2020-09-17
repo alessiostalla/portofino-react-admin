@@ -43,7 +43,7 @@ import {Options} from "ra-core/lib/dataProvider/fetch";
  *
  * export default App;
  */
-export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetchJson): {
+export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetchJson, renewTokenAfterSeconds = 600): {
     dataProvider: DataProvider,
     authProvider: AuthProvider,
     initialization: Promise<void>
@@ -53,15 +53,42 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
     }
     const resources: { [resource: string]: DataProvider } = {};
     let loginUrl = `${portofinoApiUrl}/login`;
-    const httpClient = (url, options: Options = {}) => {
-        let jwt = localStorage.getItem('token');
-        return underlyingHttpClient(url, {
-            user: {
-                authenticated: !!jwt,
-                token: `Bearer ${jwt}`
-            },
-            ...options
-        })
+    let lastRenew = new Date().getTime();
+    const httpClient = (url, options: Options | { noRenew: boolean } = {}) => {
+        function renewToken() {
+            return httpClient(`${loginUrl}/:renew-token`, {
+                method: 'POST', noRenew: true
+            }).then(response => {
+                localStorage.setItem('jwt', response.body);
+                return request();
+            }).catch(e => {
+                if (e.status == 401) {
+                    localStorage.removeItem('jwt');
+                }
+                return Promise.reject(e);
+            });
+        }
+
+        function request() {
+            let jwt = localStorage.getItem('token');
+            return underlyingHttpClient(url, {
+                user: {
+                    authenticated: !!jwt,
+                    token: `Bearer ${jwt}`
+                },
+                ...options
+            });
+        }
+
+        if(localStorage.getItem('token') && renewTokenAfterSeconds >= 0 && !options['noRenew']) {
+            const now = new Date().getTime()
+            if(now - lastRenew > renewTokenAfterSeconds * 1000) {
+                lastRenew = now;
+                return renewToken();
+            }
+        }
+
+        return request();
     };
     let initialization = underlyingHttpClient(`${portofinoApiUrl}/:description`).then(({ json }) => {
         if(json && json.loginPath) {
@@ -137,8 +164,7 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
                     }
                 });
         },
-        checkAuth: (p) => {
-            //TODO renewal?
+        checkAuth: () => {
             return localStorage.getItem('token') ? Promise.resolve() : Promise.reject()
         },
         checkError: error => {
