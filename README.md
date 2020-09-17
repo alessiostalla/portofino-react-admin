@@ -26,6 +26,10 @@ const App = () => (
 
 Please refer to the React Admin documentation if you're new to it.
 
+## Building
+
+`yarn && yarn build` should do the job. I guess you can also easily use npm if you adapt package.json slightly.
+
 ## License
 
 This library is distributed under the GNU GPLv3. Please read the LICENSE file for more details.
