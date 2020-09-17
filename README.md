@@ -25,3 +25,9 @@ const App = () => (
 ```
 
 Please refer to the React Admin documentation if you're new to it.
+
+## License
+
+This library is distributed under the GNU GPLv3. Please read the LICENSE file for more details.
+
+If you'd like a more business-friendly licensing arrangement, please open an issue or contact the author privately.
