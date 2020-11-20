@@ -23,9 +23,11 @@ import {
 import {Options} from "ra-core/lib/dataProvider/fetch";
 import {Record} from "ra-core/esm/types";
 import {gte} from "semver";
+import moment from "moment";
+import jwtDecode from "jwt-decode";
 
 export type PortofinoOptions = {
-    httpClient?: typeof fetchUtils.fetchJson, renewTokenAfterSeconds?: number, apiVersion?: string
+    httpClient?: typeof fetchUtils.fetchJson, tokenExpirationThreshold?: number, apiVersion?: string
 }
 
 /**
@@ -54,18 +56,17 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
     authProvider: AuthProvider,
     initialization: Promise<void>
 } => {
-    const defaultOptions: PortofinoOptions = { httpClient: fetchUtils.fetchJson, renewTokenAfterSeconds: 600, apiVersion: "5.2" };
+    const defaultOptions: PortofinoOptions = { httpClient: fetchUtils.fetchJson, tokenExpirationThreshold: 600, apiVersion: "5.2" };
     const portofinoOptions = {...defaultOptions, ...options};
     if(portofinoApiUrl.endsWith("/")) {
         portofinoApiUrl = portofinoApiUrl.substring(0, portofinoApiUrl.length - 1);
     }
     const resources: { [resource: string]: DataProvider } = {};
     let loginUrl = `${portofinoApiUrl}/login`;
-    let lastRenew = new Date().getTime();
-    const httpClient = (url, options: Options | { noRenew: boolean } = {}) => {
-        function renewToken() {
+    const httpClient = (url, options: Options | { dontRefreshToken: boolean } = {}) => {
+        function refreshToken() {
             return httpClient(`${loginUrl}/:renew-token`, {
-                method: 'POST', noRenew: true
+                method: 'POST', dontRefreshToken: true
             }).then(response => {
                 localStorage.setItem('jwt', response.body);
                 return request();
@@ -88,11 +89,11 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
             });
         }
 
-        if(localStorage.getItem('token') && portofinoOptions.renewTokenAfterSeconds >= 0 && !options['noRenew']) {
-            const now = new Date().getTime()
-            if(now - lastRenew > portofinoOptions.renewTokenAfterSeconds * 1000) {
-                lastRenew = now;
-                return renewToken();
+        let jwt = localStorage.getItem('token');
+        if(jwt && !options['dontRefreshToken']) {
+            const token: any = jwtDecode(jwt);
+            if(token.exp && moment().isAfter(moment((token.exp - portofinoOptions.tokenExpirationThreshold) * 1000))) {
+                return refreshToken();
             }
         }
 
@@ -158,8 +159,14 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
                     }
                     return response.json();
                 })
-                .then(({ jwt }) => {
-                    localStorage.setItem('token', jwt);
+                .then(result => {
+                    localStorage.setItem('token', result.jwt);
+                    localStorage.setItem('user', JSON.stringify({
+                        userId: result.userId,
+                        displayName: result.displayName,
+                        administrator: result.administrator,
+                        groups: result.groups
+                    }));
                 });
         },
         logout: () => {
@@ -169,6 +176,7 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
                         throw new Error(response.statusText);
                     } else {
                         localStorage.removeItem('token');
+                        localStorage.removeItem('user');
                     }
                 });
         },
