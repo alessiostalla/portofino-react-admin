@@ -68,11 +68,12 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
             return httpClient(`${loginUrl}/:renew-token`, {
                 method: 'POST', dontRefreshToken: true
             }).then(response => {
-                localStorage.setItem('jwt', response.body);
+                localStorage.setItem('token', response.body);
                 return request();
             }).catch(e => {
                 if (e.status == 401) {
-                    localStorage.removeItem('jwt');
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
                 }
                 return Promise.reject(e);
             });
@@ -187,6 +188,7 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
             const status = error.status;
             if (status === 401 || status === 403) {
                 localStorage.removeItem('token');
+                localStorage.removeItem('user');
                 return Promise.reject();
             }
             return Promise.resolve();
@@ -216,7 +218,7 @@ export class CrudResource implements DataProvider {
 
     create(resource, params: CreateParams) {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}`, {
-            method: 'POST', body: JSON.stringify(params.data)
+            method: 'POST', body: JSON.stringify(this.forUpdate(params.data))
         }).then(({ headers, json }) => {
             return {
                 data: this.toPlainJson(json),
@@ -343,8 +345,9 @@ export class CrudResource implements DataProvider {
     }
 
     update(resource, params) {
+        let data = this.forUpdate(params.data);
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
-            method: 'PUT', body: JSON.stringify(params.data)
+            method: 'PUT', body: JSON.stringify(data)
         }).then(({ headers, json }) => {
             return {
                 data: this.toPlainJson(json),
@@ -355,12 +358,13 @@ export class CrudResource implements DataProvider {
 
     updateMany(resource: string, params: UpdateManyParams): Promise<UpdateManyResult> {
         const queryString = stringify({ id: params.ids });
+        let data = this.forUpdate(params.data);
         let headers = new Headers();
         if(gte(this.apiVersion, "5.2")) {
             headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
         }
         return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
-            method: 'PUT', body: JSON.stringify(params.data), headers: headers
+            method: 'PUT', body: JSON.stringify(data), headers: headers
         }).then(({ headers, json }) => {
             if(headers.get(PORTOFINO_API_VERSION_HEADER)) { //Portofino 5.2+ sets this header for all API responses
                 return { data: json }
@@ -392,4 +396,18 @@ export class CrudResource implements DataProvider {
         }
         return result;
     }
+
+    forUpdate(data) {
+        data = {...data};
+        for (const p in data) {
+            let property = this.classAccessor.properties.find(prop => prop.name == p);
+            if (property && data.hasOwnProperty(p) && data[p]) {
+                if (property.type == 'java.util.Date' || property.type == 'java.sql.Date' || property.type == 'java.sql.Timestamp') {
+                    data[p] = data[p].getTime();
+                }
+            }
+        }
+        return data;
+    }
+
 }
