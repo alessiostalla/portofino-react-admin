@@ -18,9 +18,15 @@ import {
     GetOneResult,
     UpdateParams,
     UpdateResult,
-    UpdateManyParams, UpdateManyResult, AuthProvider
+    UpdateManyParams, UpdateManyResult, AuthProvider, HttpError, Identifier
 } from 'ra-core';
 import {Options} from "ra-core/lib/dataProvider/fetch";
+import {Record} from "ra-core/esm/types";
+import {gte} from "semver";
+
+export type PortofinoOptions = {
+    httpClient?: typeof fetchUtils.fetchJson, renewTokenAfterSeconds?: number, apiVersion?: string
+}
 
 /**
  * Maps react-admin queries to the Portofino 5 REST API.
@@ -43,11 +49,13 @@ import {Options} from "ra-core/lib/dataProvider/fetch";
  *
  * export default App;
  */
-export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetchJson, renewTokenAfterSeconds = 600): {
+export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
     dataProvider: DataProvider,
     authProvider: AuthProvider,
     initialization: Promise<void>
 } => {
+    const defaultOptions: PortofinoOptions = { httpClient: fetchUtils.fetchJson, renewTokenAfterSeconds: 600, apiVersion: "5.2" };
+    const portofinoOptions = {...defaultOptions, ...options};
     if(portofinoApiUrl.endsWith("/")) {
         portofinoApiUrl = portofinoApiUrl.substring(0, portofinoApiUrl.length - 1);
     }
@@ -71,7 +79,7 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
 
         function request() {
             let jwt = localStorage.getItem('token');
-            return underlyingHttpClient(url, {
+            return portofinoOptions.httpClient(url, {
                 user: {
                     authenticated: !!jwt,
                     token: `Bearer ${jwt}`
@@ -80,9 +88,9 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
             });
         }
 
-        if(localStorage.getItem('token') && renewTokenAfterSeconds >= 0 && !options['noRenew']) {
+        if(localStorage.getItem('token') && portofinoOptions.renewTokenAfterSeconds >= 0 && !options['noRenew']) {
             const now = new Date().getTime()
-            if(now - lastRenew > renewTokenAfterSeconds * 1000) {
+            if(now - lastRenew > portofinoOptions.renewTokenAfterSeconds * 1000) {
                 lastRenew = now;
                 return renewToken();
             }
@@ -90,7 +98,7 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
 
         return request();
     };
-    let initialization = underlyingHttpClient(`${portofinoApiUrl}/:description`).then(({ json }) => {
+    let initialization = portofinoOptions.httpClient(`${portofinoApiUrl}/:description`).then(({ json }) => {
         if(json && json.loginPath) {
             loginUrl = `${portofinoApiUrl}${json.loginPath}`;
         }
@@ -101,7 +109,7 @@ export default (portofinoApiUrl: string, underlyingHttpClient = fetchUtils.fetch
             return new Promise<T>(function (resolve, reject) {
                 httpClient(`${portofinoApiUrl}/${resource}/:classAccessor`)
                     .then(({ json }) => {
-                        let crud = new CrudResource(portofinoApiUrl, httpClient, json);
+                        let crud = new CrudResource(portofinoApiUrl, httpClient, json, portofinoOptions.apiVersion);
                         resources[resource] = crud;
                         crud[method](resource, params).then(resolve).catch(reject);
                     })
@@ -195,9 +203,10 @@ export interface Property {
 const PORTOFINO_API_VERSION_HEADER = "X-Portofino-API-Version";
 
 export class CrudResource implements DataProvider {
-    constructor(protected portofinoApiUrl, protected httpClient: HttpClient, protected classAccessor: ClassAccessor) {}
+    constructor(protected portofinoApiUrl, protected httpClient: HttpClient, protected classAccessor: ClassAccessor,
+                protected apiVersion = "5.2") {}
 
-    create(resource: string, params: CreateParams): Promise<CreateResult> {
+    create(resource, params: CreateParams) {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}`, {
             method: 'POST', body: JSON.stringify(params.data)
         }).then(({ headers, json }) => {
@@ -208,37 +217,40 @@ export class CrudResource implements DataProvider {
         });
     }
 
-    delete(resource: string, params: DeleteParams): Promise<DeleteResult> {
+    delete<RecordType extends Record = Record>(resource, params: DeleteParams): Promise<DeleteResult<RecordType>> {
         let headers = new Headers();
-        headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
+        if(gte(this.apiVersion, "5.2")) {
+            headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
+        }
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
             method: 'DELETE', headers
         }).then(({ json }) => {
             if(typeof json === "number") {
                 //Legacy version (< 5.2) does not return which objects it deleted, only how many
                 if(json == 1) {
-                    return { data: { id: params.id } };
+                    return { data: { id: params.id } as RecordType };
                 } else {
-                    return { data: { id: null } };
+                    return Promise.reject();
                 }
             } else {
                 //Portofino 5.2+
-                return { data: { id: json[0] } };
+                return { data: { id: json[0] } as RecordType };
             }
         }).catch(e => {
             if(e.status == 409) {
-                //TODO show an error message
-                return { data: { id: null } };
+                return Promise.reject(new HttpError(e.message || "Could not delete object, constraint violated", e.status));
             } else {
                 return Promise.reject(e);
             }
         });
     }
 
-    deleteMany(resource: string, params: DeleteManyParams): Promise<DeleteManyResult> {
+    deleteMany(resource, params: DeleteManyParams) {
         const queryString = stringify({ id: params.ids });
         let headers = new Headers();
-        headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
+        if(gte(this.apiVersion, "5.2")) {
+            headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
+        }
         return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
             method: 'DELETE', headers: headers
         }).then(({ json }) => {
@@ -251,15 +263,14 @@ export class CrudResource implements DataProvider {
             }
         }).catch(e => {
             if(e.status == 409) {
-                //TODO show an error message
-                return { data: [] };
+                return Promise.reject(new HttpError(e.message || "Could not delete object, constraint violated", e.status));
             } else {
                 return Promise.reject(e);
             }
         });
     }
 
-    getList(resource: string, params: GetListParams): Promise<GetListResult> {
+    getList(resource, params) {
         const queryString: any = {};
         if(params.sort && params.sort.field) {
             queryString.sortProperty = params.sort.field;
@@ -285,7 +296,7 @@ export class CrudResource implements DataProvider {
         });
     }
 
-    getMany(resource: string, params: GetManyParams): Promise<GetManyResult> {
+    getMany(resource, params) {
         const self = this;
         //We can only load them one by one...
         function load(i): Promise<GetManyResult> {
@@ -295,7 +306,7 @@ export class CrudResource implements DataProvider {
                     return { data: [result.data] };
                 });
             } else {
-                return one.then(result => load(i + i).then(results => {
+                return one.then(result => load(i + 1).then(results => {
                     return { data: [result.data, ...results.data] };
                 }));
             }
@@ -307,11 +318,14 @@ export class CrudResource implements DataProvider {
         }
     }
 
-    getManyReference(resource: string, params: GetManyReferenceParams): Promise<GetManyReferenceResult> {
-        throw "not implemented";
+    getManyReference(resource, params) {
+        return this.getList(resource, {...params, filter: {
+                ...params.filter,
+                [params.target]: params.id,
+            }});
     }
 
-    getOne(resource: string, params: GetOneParams): Promise<GetOneResult> {
+    getOne(resource, params) {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`).then(({ headers, json }) => {
             return {
                 data: this.toPlainJson(json),
@@ -320,7 +334,7 @@ export class CrudResource implements DataProvider {
         });
     }
 
-    update(resource: string, params: UpdateParams): Promise<UpdateResult> {
+    update(resource, params) {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
             method: 'PUT', body: JSON.stringify(params.data)
         }).then(({ headers, json }) => {
@@ -334,7 +348,9 @@ export class CrudResource implements DataProvider {
     updateMany(resource: string, params: UpdateManyParams): Promise<UpdateManyResult> {
         const queryString = stringify({ id: params.ids });
         let headers = new Headers();
-        headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
+        if(gte(this.apiVersion, "5.2")) {
+            headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
+        }
         return this.httpClient(`${this.portofinoApiUrl}/${resource}?${queryString}`, {
             method: 'PUT', body: JSON.stringify(params.data), headers: headers
         }).then(({ headers, json }) => {
