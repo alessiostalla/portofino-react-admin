@@ -10,6 +10,9 @@ Also, it handles authentication with a username and a password against the
 Portofino application and it will automatically send the authentication
 token with each API request.
 
+__Note__ portofino-react-admin is not part of Portofino, it's developed
+separately and it comes under a different licensing model.
+
 ## Usage
 
 ```
@@ -25,6 +28,34 @@ const App = () => (
 ```
 
 Please refer to the React Admin documentation if you're new to it.
+
+### Options
+
+You can pass additional options to `portofino`:
+
+```
+const { dataProvider, authProvider } = portofino(url, { ... });
+```
+
+Such options include:
+ * `httpClient`: which client to use (defaults to `fetchUtils.fetchJson`). For example you can wrap `fetchJson` to 
+ include additional headers that your application may require, such as an API version header.
+ * `tokenExpirationThreshold` (seconds). Default is 600 (10 minutes).
+ If the user performs an action on the server up to `tokenExpirationThreshold` seconds before their authentication token
+ expires, the token is refreshed automatically. A longer window causes more refreshes, a shorter window may require
+ users with long inactive sessions to log back in more frequently.
+ * `apiVersion`. The Portofino API version to use. Defaults to 5.2. You can provide a value less than 5.2 to avoid
+ sending the API version header that earlier versions of Portofino don't interpret, which can cause issues with CORS.
+ 
+### Performing an Action After Initialization
+
+When you call `portofino`, it makes an API call to the server URL to determine the path to the login action and other
+information. If for some reason you want to run some code after this happens, you can:
+
+```
+const { dataProvider, authProvider, initialization } = portofino(url, { ... });
+initialization.then(() => { ... });
+``` 
 
 ## Building
 
