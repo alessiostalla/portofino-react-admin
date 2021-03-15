@@ -307,12 +307,22 @@ export class CrudResource implements DataProvider {
             queryString.firstResult = (params.pagination.page - 1) * params.pagination.perPage;
             queryString.maxResults = params.pagination.perPage;
         }
-        if(params.filter) {
-            const searchString: any = {};
-            for (const filter in params.filter) {
-                searchString[`search_${filter}`] = params.filter[filter];
+        let filter = params.filter;
+        if(filter) {
+            for (const filteredProperty in filter) {
+                let value = filter[filteredProperty];
+                const property = this.classAccessor.properties.find(prop => prop.name == filteredProperty);
+                if (property && value) {
+                    if (property.type == 'java.util.Date' || property.type == 'java.sql.Date' || property.type == 'java.sql.Timestamp') {
+                        value = value.getTime();
+                    } else if(typeof value == "number") {
+                        queryString[`search_${filteredProperty}_min`] = value;
+                        queryString[`search_${filteredProperty}_max`] = value;
+                    } else {
+                        queryString[`search_${filteredProperty}`] = value;
+                    }
+                }
             }
-            queryString.searchString = stringify(searchString);
         }
         return this.httpClient(`${this.portofinoApiUrl}/${resource}?${stringify(queryString)}`).then(({ headers, json }) => {
             return {
@@ -395,7 +405,7 @@ export class CrudResource implements DataProvider {
     }
 
     toPlainJson(obj: any) {
-        let result = {...obj};
+        const result = {...obj};
         if(!result.id) {
             result.id = result.__rowKey;
         }

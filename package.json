@@ -1,6 +1,6 @@
 {
     "name": "portofino-react-admin",
-    "version": "1.0.0",
+    "version": "1.0.1-dev",
     "description": "REST data provider and auth provider for react-admin against Portofino 5",
     "main": "lib/index.js",
     "module": "esm/index.js",
