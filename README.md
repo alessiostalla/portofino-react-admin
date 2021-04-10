@@ -1,3 +1,5 @@
+[![NPM](https://img.shields.io/npm/v/portofino-react-admin.svg)](https://npmjs.org/package/portofino-react-admin)
+
 # Description
 portofino-react-admin is a Data provider and Auth provider to connect
 a [react-admin](https://marmelab.com/react-admin/) web application with a
