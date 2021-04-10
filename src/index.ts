@@ -365,7 +365,7 @@ export class CrudResource implements DataProvider {
     getOne(resource, params) {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`).then(({ json }) => {
             return {
-                data: this.toPlainJson(json),
+                data: this.toPlainJson({id: params.id, ...json}),
                 rawData: json
             };
         });
@@ -411,7 +411,9 @@ export class CrudResource implements DataProvider {
         }
         delete result.__rowKey;
         for (const p in result) {
-            if(Object.prototype.hasOwnProperty.call(result, p) && Object.prototype.hasOwnProperty.call(result[p], "value")) {
+            if(Object.prototype.hasOwnProperty.call(result, p) &&
+                result[p] &&
+                Object.prototype.hasOwnProperty.call(result[p], "value")) {
                 result[p] = result[p].value;
                 const property = this.classAccessor.properties.find(prop => prop.name == p);
                 if(property) {
