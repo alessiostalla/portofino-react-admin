@@ -35,7 +35,7 @@ import {
     GetOneResult,
     UpdateParams,
     UpdateResult,
-    UpdateManyParams, UpdateManyResult, AuthProvider, HttpError, Identifier
+    UpdateManyParams, UpdateManyResult, AuthProvider, HttpError
 } from 'ra-core';
 import {Options} from "ra-core/lib/dataProvider/fetch";
 import {Record} from "ra-core/esm/types";
@@ -97,7 +97,7 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
         }
 
         function request() {
-            let jwt = localStorage.getItem('token');
+            const jwt = localStorage.getItem('token');
             return portofinoOptions.httpClient(url, {
                 user: {
                     authenticated: !!jwt,
@@ -107,7 +107,7 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
             });
         }
 
-        let jwt = localStorage.getItem('token');
+        const jwt = localStorage.getItem('token');
         if(jwt && !options['dontRefreshToken']) {
             const token: any = jwtDecode(jwt);
             if(token.exp && moment().isAfter(moment((token.exp - portofinoOptions.tokenExpirationThreshold) * 1000))) {
@@ -117,7 +117,7 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
 
         return request();
     };
-    let initialization = portofinoOptions.httpClient(`${portofinoApiUrl}/:description`).then(({ json }) => {
+    const initialization = portofinoOptions.httpClient(`${portofinoApiUrl}/:description`).then(({ json }) => {
         if(json && json.loginPath) {
             loginUrl = `${portofinoApiUrl}${json.loginPath}`;
         }
@@ -128,7 +128,7 @@ export default (portofinoApiUrl: string, options: PortofinoOptions = {}): {
             return new Promise<T>(function (resolve, reject) {
                 httpClient(`${portofinoApiUrl}/${resource}/:classAccessor`)
                     .then(({ json }) => {
-                        let crud = new CrudResource(portofinoApiUrl, httpClient, json, portofinoOptions.apiVersion);
+                        const crud = new CrudResource(portofinoApiUrl, httpClient, json, portofinoOptions.apiVersion);
                         resources[resource] = crud;
                         crud[method](resource, params).then(resolve).catch(reject);
                     })
@@ -230,13 +230,14 @@ export interface Property {
 const PORTOFINO_API_VERSION_HEADER = "X-Portofino-API-Version";
 
 export class CrudResource implements DataProvider {
-    constructor(protected portofinoApiUrl, protected httpClient: HttpClient, protected classAccessor: ClassAccessor,
+    constructor(protected portofinoApiUrl: string, protected httpClient: HttpClient,
+                protected classAccessor: ClassAccessor,
                 protected apiVersion = "5.2") {}
 
     create(resource, params: CreateParams) {
         return this.httpClient(`${this.portofinoApiUrl}/${resource}`, {
             method: 'POST', body: JSON.stringify(this.forUpdate(params.data))
-        }).then(({ headers, json }) => {
+        }).then(({ json }) => {
             return {
                 data: this.toPlainJson(json),
                 rawData: json
@@ -245,7 +246,7 @@ export class CrudResource implements DataProvider {
     }
 
     delete<RecordType extends Record = Record>(resource, params: DeleteParams): Promise<DeleteResult<RecordType>> {
-        let headers = new Headers();
+        const headers = new Headers();
         if(gte(this.apiVersion, "5.2")) {
             headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
         }
@@ -274,7 +275,7 @@ export class CrudResource implements DataProvider {
 
     deleteMany(resource, params: DeleteManyParams) {
         const queryString = stringify({ id: params.ids });
-        let headers = new Headers();
+        const headers = new Headers();
         if(gte(this.apiVersion, "5.2")) {
             headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
         }
@@ -307,7 +308,7 @@ export class CrudResource implements DataProvider {
             queryString.firstResult = (params.pagination.page - 1) * params.pagination.perPage;
             queryString.maxResults = params.pagination.perPage;
         }
-        let filter = params.filter;
+        const filter = params.filter;
         if(filter) {
             for (const filteredProperty in filter) {
                 let value = filter[filteredProperty];
@@ -324,7 +325,7 @@ export class CrudResource implements DataProvider {
                 }
             }
         }
-        return this.httpClient(`${this.portofinoApiUrl}/${resource}?${stringify(queryString)}`).then(({ headers, json }) => {
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}?${stringify(queryString)}`).then(({ json }) => {
             return {
                 data: json.records.map(x => this.toPlainJson(x)),
                 rawData: json.records,
@@ -334,10 +335,9 @@ export class CrudResource implements DataProvider {
     }
 
     getMany(resource, params) {
-        const self = this;
         //We can only load them one by one...
-        function load(i): Promise<GetManyResult> {
-            let one = self.getOne(resource, { id: params.ids[i] });
+        const load = (i): Promise<GetManyResult> => {
+            const one = this.getOne(resource, { id: params.ids[i] });
             if(i == params.ids.length - 1) {
                 return one.then(result => {
                     return { data: [result.data] };
@@ -363,7 +363,7 @@ export class CrudResource implements DataProvider {
     }
 
     getOne(resource, params) {
-        return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`).then(({ headers, json }) => {
+        return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`).then(({ json }) => {
             return {
                 data: this.toPlainJson(json),
                 rawData: json
@@ -372,10 +372,10 @@ export class CrudResource implements DataProvider {
     }
 
     update(resource, params) {
-        let data = this.forUpdate(params.data);
+        const data = this.forUpdate(params.data);
         return this.httpClient(`${this.portofinoApiUrl}/${resource}/${params.id}`, {
             method: 'PUT', body: JSON.stringify(data)
-        }).then(({ headers, json }) => {
+        }).then(({ json }) => {
             return {
                 data: this.toPlainJson(json),
                 rawData: json
@@ -385,8 +385,8 @@ export class CrudResource implements DataProvider {
 
     updateMany(resource: string, params: UpdateManyParams): Promise<UpdateManyResult> {
         const queryString = stringify({ id: params.ids });
-        let data = this.forUpdate(params.data);
-        let headers = new Headers();
+        const data = this.forUpdate(params.data);
+        const headers = new Headers();
         if(gte(this.apiVersion, "5.2")) {
             headers.set(PORTOFINO_API_VERSION_HEADER, "5.2");
         }
@@ -411,9 +411,9 @@ export class CrudResource implements DataProvider {
         }
         delete result.__rowKey;
         for (const p in result) {
-            if(result.hasOwnProperty(p) && result[p].hasOwnProperty("value")) {
+            if(Object.prototype.hasOwnProperty.call(result, p) && Object.prototype.hasOwnProperty.call(result[p], "value")) {
                 result[p] = result[p].value;
-                let property = this.classAccessor.properties.find(prop => prop.name == p);
+                const property = this.classAccessor.properties.find(prop => prop.name == p);
                 if(property) {
                     if(property.type == 'java.util.Date' || property.type == 'java.sql.Date' || property.type == 'java.sql.Timestamp') {
                         result[p] = new Date(result[p]);
@@ -424,11 +424,11 @@ export class CrudResource implements DataProvider {
         return result;
     }
 
-    forUpdate(data) {
+    forUpdate(data: any): any {
         data = {...data};
         for (const p in data) {
-            let property = this.classAccessor.properties.find(prop => prop.name == p);
-            if (property && data.hasOwnProperty(p) && data[p]) {
+            const property = this.classAccessor.properties.find(prop => prop.name == p);
+            if (property && Object.prototype.hasOwnProperty.call(data, p) && data[p]) {
                 if (property.type == 'java.util.Date' || property.type == 'java.sql.Date' || property.type == 'java.sql.Timestamp') {
                     data[p] = data[p].getTime();
                 }
