@@ -68,3 +68,7 @@ initialization.then(() => { ... });
 This library is distributed under the GNU GPLv3. Please read the LICENSE file for more details.
 
 If you'd like a more business-friendly licensing arrangement, please open an issue or contact the author privately.
+
+## Donations
+
+You can help me maintain this and other projects by donating to [my Patreon](https://www.patreon.com/alessiostalla).
